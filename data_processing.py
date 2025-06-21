@@ -1,6 +1,7 @@
 import pandas as pd
 
-df = pd.read_csv("data/raw_learning.csv")  
+df = pd.read_csv("data/raw_web.csv")  
+df = df[~df["text"].str.contains("AKIA", na=False)]
 
 
 import re
