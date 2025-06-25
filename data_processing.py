@@ -1,6 +1,6 @@
 import pandas as pd
 
-df = pd.read_csv("data/raw_web.csv")  
+df = pd.read_csv("data/raw_learning.csv")  
 df = df[~df["text"].str.contains("AKIA", na=False)]
 
 
@@ -36,6 +36,7 @@ df["text"] = df["text"].fillna("")
 df["cleaned_text"] = df["text"].apply(clean_markdown)
 df = df[df["cleaned_text"].str.strip() != ""]
 
+'''
 def chunk_text(text, max_words=300):
     words = text.split()
     return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
@@ -52,3 +53,6 @@ for _, row in df.iterrows():
 df_chunks = pd.DataFrame(chunked_rows)
 df_chunks.to_csv("data/processed_chunks.csv", index=False)
 print("worked yay")
+
+'''
+df.to_csv("./data/mds/processed_learning.csv", index=False)
