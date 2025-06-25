@@ -1,0 +1,3 @@
+Prof. Esfarjani's group is using the HPC cluster to develop the Anharmonic LAttice DYNamics (ALADYN) software suite to calculate thermal transport properties and phase transitions from first-principles. The codes can extract force constants, solve the Boltzmann transport equation, predict thermal equilibrium based on the self-consistent phonon theory, and run molecular dynamics simulations within an anharmonic force field. The figure shows the phonon density of states and dispersion curve of Ge obtained from ALADYN.
+
+**PI: Keivan Esfarjani, PhD (Department of Materials Science & Engineering)**

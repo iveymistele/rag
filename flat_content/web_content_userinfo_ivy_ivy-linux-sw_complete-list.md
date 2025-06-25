@@ -1,0 +1,1 @@
+{{< hsz-software moduleclasses="all" >}}

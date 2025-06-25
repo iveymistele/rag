@@ -1,0 +1,1 @@
+Megan is a current 2nd-year student double majoring in Computer Science and Cognitive Science. She has experience coding in Python, Java, and SQL. Megan is an active member of Women in Computing Sciences, Student Game Developers, and the Cavalier Symphony Orchestra. In her free time, Megan likes to draw, play video games, and doom scroll on Wikipedia.
