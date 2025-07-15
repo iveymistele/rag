@@ -18,14 +18,22 @@ DOCUMENT_STORE_NAMESPACE = "website_documents"
 chat_instances = {}
 
 REPHRASE_PROMPT = '''
-Given the following conversation and a follow up question, rephrase the follow up question to be a longer-form standalone question that can be used to retrieve relevant documents from a vector store. The rephrased question should be clear, focusing on the key information needed to answer the question.
+Task: Given a multi-turn conversation and a follow-up user question, rewrite the follow-up as a clear, detailed, and standalone question suitable for retrieving relevant documents from a vector database.
+
+- Use the context from the full conversation (`{chat_history}`) to preserve intent and necessary background.
+- The rewritten question should not reference the conversation explicitly (e.g., avoid “as mentioned before”).
+- Ensure the standalone question includes all important entities, topics, and context implied in the follow-up.
+- Favor clarity and completeness over brevity.
+
+Input:
 
 Chat History:
 {chat_history}
 
-Follow Up Input: {input}
+Follow-Up Question:
+{input}
 
-Standalone Question:
+Rewritten Standalone Question:
 '''
 
 PROMPT_TEMPLATE = '''
@@ -71,7 +79,10 @@ def create_rag_chat() -> uuid.UUID:
     chat_instances[chat_id] = {
         "chat": chat,
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant for University of Virginia Research Computing (UVA RC). You will concisely and succinctly answer questions based on the context provided from the UVA RC YouTube channel and UVA RC Teaching Markdowns. Respond succinctly and accurately. If background knowledge combined with the context does not provide enough information, state that you do not know. If the user asks questions completely unrelated to the context or computing, politely inform them that you can only answer questions related to RC. If the user asks something related to RC, but the context does not provide enough information, state that you do not know."}
+            {
+            "role": "system",
+            "content": "You are a helpful assistant for University of Virginia Research Computing (UVA RC). You will answer questions concisely and accurately based on the provided context, which may include content from the UVA RC YouTube channel and UVA RC Teaching Markdowns.\n\n- If the question is related to Research Computing but not covered in the context, respond with: 'I'm not sure based on the provided information.'\n- If the question is unrelated to Research Computing or computing in general, respond with: 'I'm here to help with UVA Research Computing-related topics. Let me know if you have a relevant question.'\n- Do not invent answers. Base your responses only on the context and reliable background knowledge.\n- Be succinct, clear, and helpful in all responses."
+            }
         ],
     }
     
@@ -134,7 +145,7 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
 
     context = "\n---\n".join([result.page_content for result in docs]) if docs else "No relevant documents found."
     for doc in docs:
-        print(f"Document: {doc.metadata['source']}, Content: {doc.page_content[:100]}...")
+        print(f"Document: {doc.metadata['source']}: with tags {doc.metadata['tags']}")
 
     prompt.append(
         {"role": "user", "content": ChatPromptTemplate.from_template(PROMPT_TEMPLATE).format(
