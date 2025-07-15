@@ -1,30 +1,34 @@
 from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
-from langchain.prompts import ChatPromptTemplate
-from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from chromadb import PersistentClient
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 import json
 import uuid
-from langchain.chains.history_aware_retriever import create_history_aware_retriever
+from langchain.retrievers.parent_document_retriever import ParentDocumentRetriever
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.storage import SQLStore
+from langchain.storage._lc_store import create_kv_docstore
 
 CHROMA_PATH = "./chroma"
 COLLECTION_NAME = "data"
+DOCUMENT_STORE_URL = "sqlite:///document_store.db"
+DOCUMENT_STORE_NAMESPACE = "website_documents"
 
 chat_instances = {}
 
 REPHRASE_PROMPT = '''
-Given the following conversation and follow-up, rephrase the follow-up question to be more specific and clear, while retaining the original intent.
-Conversation:
+Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question that can be used to retrieve relevant documents from a vector store. The rephrased question should be clear and concise, focusing on the key information needed to answer the question.
+
+Chat History:
 {chat_history}
 
-Follow-up: {input}
+Follow Up Input: {input}
 
-Standalone rephrased question:
+Standalone Question:
 '''
 
 PROMPT_TEMPLATE = '''
-Answer the question based on previous messages and the following context:
 ---
 
 {context}
@@ -67,7 +71,7 @@ def create_rag_chat() -> uuid.UUID:
     chat_instances[chat_id] = {
         "chat": chat,
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant for University of Virginia Research Computing (UVA RC). You will answer questions based on the context provided from the UVA RC YouTube channel and UVA RC Teaching Markdowns. Respond succinctly and accurately. If background knowledge combined with the context does not provide enough information, state that you do not know. If the user asks questions completely unrelated to the context or computing, politely inform them that you can only answer questions related to RC. If the user asks something related to RC, but the context does not provide enough information, state that you do not know."}
+            {"role": "system", "content": "You are a helpful assistant for University of Virginia Research Computing (UVA RC). You will concisely and succinctly answer questions based on the context provided from the UVA RC YouTube channel and UVA RC Teaching Markdowns. Respond succinctly and accurately. If background knowledge combined with the context does not provide enough information, state that you do not know. If the user asks questions completely unrelated to the context or computing, politely inform them that you can only answer questions related to RC. If the user asks something related to RC, but the context does not provide enough information, state that you do not know."}
         ],
     }
     
@@ -90,23 +94,46 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
     # # Perform the retrieval
     # docs = retriever_multi_query.invoke(query)
 
-    retriever = create_history_aware_retriever(
-        llm=chat,
-        retriever=vector_store.as_retriever(),
-        prompt=ChatPromptTemplate.from_template(REPHRASE_PROMPT),
+    # retriever = create_history_aware_retriever(
+    #     llm=chat,
+    #     retriever=vector_store.as_retriever(),
+    #     prompt=ChatPromptTemplate.from_template(REPHRASE_PROMPT),
+    # )
+    sql_store = SQLStore(
+        namespace=DOCUMENT_STORE_NAMESPACE,
+        db_url=DOCUMENT_STORE_URL
+    )
+    doc_store = create_kv_docstore(sql_store)
+
+
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=200,
+        length_function=len,
+    )
+    retriever = ParentDocumentRetriever(
+        vectorstore=vector_store,
+        docstore=doc_store,
+        child_splitter=child_splitter,
     )
 
     # Perform the retrieval
-    docs = retriever.invoke({
-        "input": query,
-        "chat_history": prompt,
-    })
+    # docs = retriever.invoke({
+    #     "input": query,
+    #     "chat_history": prompt,
+    # })
+    rephrased_query = chat.invoke(PromptTemplate.from_template(REPHRASE_PROMPT).format(
+        chat_history=prompt,
+        input=query
+    ))
+    docs = retriever.invoke(rephrased_query.content)
 
     # Take the top 5 documents
     docs = docs[:5]
 
-    context = "\n".join([result.page_content for result in docs]) if docs else "No relevant documents found."
-    print(f"Context: {context}")
+    context = "\n---\n".join([result.page_content for result in docs]) if docs else "No relevant documents found."
+    for doc in docs:
+        print(f"Document: {doc.metadata['source']}, Content: {doc.page_content[:100]}...")
 
     prompt.append(
         {"role": "user", "content": ChatPromptTemplate.from_template(PROMPT_TEMPLATE).format(
@@ -126,6 +153,8 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
             case "youtube":
                 sources_formatted.append(f'[{metadata["title"]}]({metadata["webpage_url"]}) by [{metadata["author"]}](https://www.youtube.com/channel/{metadata["channel_id"]})')
             case "markdown":
+                sources_formatted.append(f'[{metadata["source"]}]({metadata["source"]})')
+            case "website":
                 sources_formatted.append(f'[{metadata["source"]}]({metadata["source"]})')
     
     formatted_response = {
