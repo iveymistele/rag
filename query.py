@@ -18,7 +18,7 @@ DOCUMENT_STORE_NAMESPACE = "website_documents"
 chat_instances = {}
 
 REPHRASE_PROMPT = '''
-Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question that can be used to retrieve relevant documents from a vector store. The rephrased question should be clear and concise, focusing on the key information needed to answer the question.
+Given the following conversation and a follow up question, rephrase the follow up question to be a longer-form standalone question that can be used to retrieve relevant documents from a vector store. The rephrased question should be clear, focusing on the key information needed to answer the question.
 
 Chat History:
 {chat_history}
@@ -125,8 +125,9 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
     rephrased_query = chat.invoke(PromptTemplate.from_template(REPHRASE_PROMPT).format(
         chat_history=prompt,
         input=query
-    ))
-    docs = retriever.invoke(rephrased_query.content)
+    ), think=False)
+    print(f"Rephrased query: {rephrased_query.content}")
+    docs = retriever.invoke(rephrased_query.content, search_type="similarity")
 
     # Take the top 5 documents
     docs = docs[:5]
