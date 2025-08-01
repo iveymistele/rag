@@ -1,1 +1,0 @@
-Hana is a Computer Scientist with a strong background in a variety of programming languages. She is most experienced with Python and C/C++ and is passionate about teaching others about those languages. She helps to provide user support for the users of Rivanna and is seeking to learn more about GPU computing to better help those in an HPC environment.

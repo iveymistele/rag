@@ -1,1 +1,0 @@
-Resources are defined here.

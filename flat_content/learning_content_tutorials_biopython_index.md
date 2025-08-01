@@ -1,1 +1,0 @@
-In this workshop participants will learn how to use the biopython package to develop Python scripts for bioinformatics analysis. Participants will learn how to download public datasets from online databases, parse bioinformatics file formats, and implement some sequence analysis workflows.

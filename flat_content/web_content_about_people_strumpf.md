@@ -1,1 +1,0 @@
-Andrew is a Data Manager with a background in public health and clinical research. He helps users comply with University policies for research data and develop customized data pipelines.
