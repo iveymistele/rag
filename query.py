@@ -1,5 +1,4 @@
-from langchain_community.vectorstores import Chroma
-from langchain_chroma import Chroma
+from langchain_postgres import PGEngine, PGVectorStore
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from chromadb import PersistentClient
 from langchain_ollama import OllamaEmbeddings, ChatOllama
@@ -9,31 +8,35 @@ from langchain.retrievers.parent_document_retriever import ParentDocumentRetriev
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.storage import SQLStore
 from langchain.storage._lc_store import create_kv_docstore
+from langchain_community.document_compressors.rankllm_rerank import RankLLMRerank, ModelType
+from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
+from rank_llm.rerank.listwise.zephyr_reranker import ZephyrReranker
 
-CHROMA_PATH = "./chroma"
-COLLECTION_NAME = "data"
-DOCUMENT_STORE_URL = "sqlite:///document_store.db"
-DOCUMENT_STORE_NAMESPACE = "website_documents"
+CONNECTION_STRING = "postgresql+psycopg://user:password@localhost:5432/vector_db"
+COLLECTION_NAME = "documents"
+VECTOR_SIZE = 768  # Adjust based on the model's output vector size
+DOCUMENT_STORE_NAMESPACE = "full_documents"
 
 chat_instances = {}
 
 REPHRASE_PROMPT = '''
-Task: Given a multi-turn conversation and a follow-up user question, rewrite the follow-up as a clear, detailed, and standalone question suitable for retrieving relevant documents from a vector database.
+Task: Given a multi-turn conversation and a follow-up user question:
 
-- Use the context from the full conversation (`{chat_history}`) to preserve intent and necessary background.
+- Rewrite the follow-up as a clear, brief, and standalone question suitable for retrieving relevant documents from a vector database.
+- Extract a concise list of the most relevant key concepts or phrases from the rewritten question for use in vector similarity search.
+- Use the context from the full conversation to preserve intent and necessary background.
 - The rewritten question should not reference the conversation explicitly (e.g., avoid “as mentioned before”).
 - Ensure the standalone question includes all important entities, topics, and context implied in the follow-up.
-- Favor clarity and completeness over brevity.
-
-Input:
+- Focus on technical terms, specific entities, and concepts relevant to the question.
+- Avoid unnecessary details or overly complex language.
+- Extract only essential technical terms, entities, and concepts—avoid stopwords, vague verbs, or general filler words.
+- Do not include any personal opinions or interpretations.
 
 Chat History:
 {chat_history}
 
-Follow-Up Question:
+Follow-up Question:
 {input}
-
-Rewritten Standalone Question:
 '''
 
 PROMPT_TEMPLATE = '''
@@ -45,21 +48,22 @@ PROMPT_TEMPLATE = '''
 Answer the question based on the above context: {question}
 '''
 
-def get_vector_store() -> Chroma:
-    persistent_client = PersistentClient(
-        path=CHROMA_PATH,
-    )
-
+def get_vector_store():
     embeddings = OllamaEmbeddings(
         base_url="http://localhost:11434",
-        model="qwen3",
+        model="nomic-embed-text"
     )
 
-    return Chroma(
-        client=persistent_client,
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings,
+    engine = PGEngine.from_connection_string(url=CONNECTION_STRING)
+
+    vector_store = PGVectorStore.create_sync(
+        engine=engine,
+        embedding_service=embeddings,
+        table_name=COLLECTION_NAME,
+        k=3
     )
+
+    return vector_store
 
 def create_rag_chat() -> uuid.UUID:
     """
@@ -88,9 +92,9 @@ def create_rag_chat() -> uuid.UUID:
     
     return chat_id
 
-def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
+def rag_query(chat_id: uuid.UUID, retriever: ParentDocumentRetriever, query: str) -> str:
     """
-    Perform a RAG query on the Chroma vector store.
+    Perform a RAG query on the PGVectorStore.
     """
     chat_instance = chat_instances[chat_id]
     chat = chat_instance["chat"]
@@ -110,23 +114,6 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
     #     retriever=vector_store.as_retriever(),
     #     prompt=ChatPromptTemplate.from_template(REPHRASE_PROMPT),
     # )
-    sql_store = SQLStore(
-        namespace=DOCUMENT_STORE_NAMESPACE,
-        db_url=DOCUMENT_STORE_URL
-    )
-    doc_store = create_kv_docstore(sql_store)
-
-
-    child_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=400,
-        chunk_overlap=200,
-        length_function=len,
-    )
-    retriever = ParentDocumentRetriever(
-        vectorstore=vector_store,
-        docstore=doc_store,
-        child_splitter=child_splitter,
-    )
 
     # Perform the retrieval
     # docs = retriever.invoke({
@@ -138,14 +125,18 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
         input=query
     ), think=False)
     print(f"Rephrased query: {rephrased_query.content}")
-    docs = retriever.invoke(rephrased_query.content, search_type="similarity")
 
-    # Take the top 5 documents
-    docs = docs[:5]
+    docs = retriever.invoke(rephrased_query.content, search_type="similarity")
+    print("Length of documents:", len(docs))
+
+    # Take the top 50 documents
+    # docs = docs[:50]
 
     context = "\n---\n".join([result.page_content for result in docs]) if docs else "No relevant documents found."
     for doc in docs:
-        print(f"Document: {doc.metadata['source']}: with tags {doc.metadata['tags']}")
+        print(f"Document: {doc.metadata['source']}: with metadata {doc.metadata}")
+    
+    # print(context)
 
     prompt.append(
         {"role": "user", "content": ChatPromptTemplate.from_template(PROMPT_TEMPLATE).format(
@@ -182,14 +173,49 @@ def rag_query(chat_id: uuid.UUID, vector_store: Chroma, query: str) -> str:
 
 def main():
     vector_store = get_vector_store()
-    rag_chat = create_rag_chat()
 
-    print(f"Number of documents in vector store: {len(vector_store.get()['ids'])}")
+    sql_store = SQLStore(
+        namespace=DOCUMENT_STORE_NAMESPACE,
+        db_url=CONNECTION_STRING
+    )
+    doc_store = create_kv_docstore(sql_store)
+
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=200,
+        length_function=len,
+    )
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len,
+    )
+
+    retriever = ParentDocumentRetriever(
+        vectorstore=vector_store,
+        docstore=doc_store,
+        child_splitter=child_splitter,
+        # parent_splitter=parent_splitter
+    )
+
+    compressor = RankLLMRerank(
+        top_n=3,
+        client=ZephyrReranker(device="cpu"),
+        model="zephyr",
+    )
+    compression_retriever = ContextualCompressionRetriever(
+        base_retriever=retriever,
+        base_compressor=compressor,
+        return_source_documents=True
+    )
+    del compressor
+
+    rag_chat = create_rag_chat()
 
     while True:
         query_text = input("Enter your query: ")
 
-        response = rag_query(rag_chat, vector_store, query_text)
+        response = rag_query(rag_chat, retriever, query_text)
 
         formatted_response = json.dumps(response, indent=2)
 

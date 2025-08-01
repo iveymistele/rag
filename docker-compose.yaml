@@ -8,6 +8,26 @@ services:
       - ollama:/root/.ollama
     ports:
       - "11434:11434"
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: vector_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./vector_db:/var/lib/postgresql/data
+  psql:
+    image: alpine/psql:17.5
+    depends_on:
+      - postgres
+    command: [ "-h", "postgres", "-U", "user", "-d", "vector_db" ]
+    stdin_open: true
+    tty: true
+    environment:
+      PGPASSWORD: password
 
 volumes:
   ollama:
