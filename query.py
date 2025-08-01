@@ -1,6 +1,5 @@
 from langchain_postgres import PGEngine, PGVectorStore
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
-from chromadb import PersistentClient
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 import json
 import uuid
@@ -8,14 +7,22 @@ from langchain.retrievers.parent_document_retriever import ParentDocumentRetriev
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.storage import SQLStore
 from langchain.storage._lc_store import create_kv_docstore
-from langchain_community.document_compressors.rankllm_rerank import RankLLMRerank, ModelType
-from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
-from rank_llm.rerank.listwise.zephyr_reranker import ZephyrReranker
+from os import getenv
+# from langchain_community.document_compressors.rankllm_rerank import RankLLMRerank, ModelType
+# from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
+# from rank_llm.rerank.listwise.zephyr_reranker import ZephyrReranker
 
 CONNECTION_STRING = "postgresql+psycopg://user:password@localhost:5432/vector_db"
+
+CONNECTION_STRING = getenv("PG_CONNECTION_STRING", "")
+if not CONNECTION_STRING:
+    raise ValueError("PG_CONNECTION_STRING environment variable is not set.")
+
 COLLECTION_NAME = "documents"
 VECTOR_SIZE = 768  # Adjust based on the model's output vector size
 DOCUMENT_STORE_NAMESPACE = "full_documents"
+
+OLLAMA_BASE_URL = getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 chat_instances = {}
 
@@ -50,7 +57,7 @@ Answer the question based on the above context: {question}
 
 def get_vector_store():
     embeddings = OllamaEmbeddings(
-        base_url="http://localhost:11434",
+        base_url=OLLAMA_BASE_URL,
         model="nomic-embed-text"
     )
 
@@ -65,6 +72,45 @@ def get_vector_store():
 
     return vector_store
 
+def get_retriever(vector_store: PGVectorStore) -> ParentDocumentRetriever:
+    sql_store = SQLStore(
+        namespace=DOCUMENT_STORE_NAMESPACE,
+        db_url=CONNECTION_STRING
+    )
+    doc_store = create_kv_docstore(sql_store)
+
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=200,
+        length_function=len,
+    )
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len,
+    )
+
+    retriever = ParentDocumentRetriever(
+        vectorstore=vector_store,
+        docstore=doc_store,
+        child_splitter=child_splitter,
+        # parent_splitter=parent_splitter
+    )
+
+    # compressor = RankLLMRerank(
+    #     top_n=3,
+    #     client=ZephyrReranker(device="cpu"),
+    #     model="zephyr",
+    # )
+    # compression_retriever = ContextualCompressionRetriever(
+    #     base_retriever=retriever,
+    #     base_compressor=compressor,
+    #     return_source_documents=True
+    # )
+    # del compressor
+
+    return retriever
+
 def create_rag_chat() -> uuid.UUID:
     """
     Create a RAG chat instance using the Ollama model.
@@ -72,7 +118,7 @@ def create_rag_chat() -> uuid.UUID:
     prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
     
     chat = ChatOllama(
-        base_url="http://localhost:11434",
+        base_url=OLLAMA_BASE_URL,
         model="qwen3",
         temperature=0.1,  # Adjust temperature for more deterministic responses
         prompt=prompt,
@@ -174,41 +220,7 @@ def rag_query(chat_id: uuid.UUID, retriever: ParentDocumentRetriever, query: str
 def main():
     vector_store = get_vector_store()
 
-    sql_store = SQLStore(
-        namespace=DOCUMENT_STORE_NAMESPACE,
-        db_url=CONNECTION_STRING
-    )
-    doc_store = create_kv_docstore(sql_store)
-
-    child_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=400,
-        chunk_overlap=200,
-        length_function=len,
-    )
-    parent_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len,
-    )
-
-    retriever = ParentDocumentRetriever(
-        vectorstore=vector_store,
-        docstore=doc_store,
-        child_splitter=child_splitter,
-        # parent_splitter=parent_splitter
-    )
-
-    compressor = RankLLMRerank(
-        top_n=3,
-        client=ZephyrReranker(device="cpu"),
-        model="zephyr",
-    )
-    compression_retriever = ContextualCompressionRetriever(
-        base_retriever=retriever,
-        base_compressor=compressor,
-        return_source_documents=True
-    )
-    del compressor
+    retriever = get_retriever(vector_store)
 
     rag_chat = create_rag_chat()
 

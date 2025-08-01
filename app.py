@@ -1,6 +1,6 @@
 from flask import Flask
 from flask import request, jsonify
-from query import get_vector_store, rag_query, create_rag_chat
+from query import get_vector_store, get_retriever, rag_query, create_rag_chat
 
 app = Flask(__name__)
 
@@ -23,9 +23,9 @@ def query():
 
     vector_store = get_vector_store()
 
-    formatted_response = rag_query(chat_id, vector_store, query_text)
+    formatted_response = rag_query(chat_id, get_retriever(vector_store), query_text)
 
-    return jsonify({"response": formatted_response})
+    return jsonify(formatted_response), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
