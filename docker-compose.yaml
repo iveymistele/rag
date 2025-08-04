@@ -18,7 +18,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./vector_db:/var/lib/postgresql/data
+      - vector_db:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d/
   app:
     build:
@@ -34,3 +34,4 @@ services:
       - "5000:5000"
 volumes:
   ollama:
+  vector_db:
