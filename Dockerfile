@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements-prod.txt .
 RUN pip install --no-cache-dir -r requirements-prod.txt
 
-COPY app.py query.py /app/
+COPY ./backend/app.py ./backend/query.py /app/
 
 CMD ["python", "app.py"]
 

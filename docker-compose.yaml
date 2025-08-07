@@ -26,12 +26,13 @@ services:
       dockerfile: Dockerfile
     environment:
       PG_CONNECTION_STRING: "postgresql+psycopg://user:password@postgres:5432/vector_db"
-      OLLAMA_BASE_URL: "http://ollama:11434"
-    depends_on:
-      - postgres
-      - ollama
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    #depends_on:
+      #- postgres
+      #- ollama
     ports:
-      - "5000:5000"
+      - "5050:5000"
+
 volumes:
   ollama:
   vector_db:
