@@ -4,7 +4,7 @@ import streamlit as st
 import requests
 import uuid
 
-st.title("RC Chatbot Test")
+st.title("RC Chatbot")
 
 if "chat_id" not in st.session_state:
     try:
@@ -15,7 +15,7 @@ if "chat_id" not in st.session_state:
     except Exception as e:
         st.error(f"Failed to start session: {type(e).__name__}: {e}")
 
-question = st.text_input("Ask me something")
+question = st.text_input("Ask me something (i.e., 'I just moved to UVA. How do I transfer my research data?')")
 
 # Step 3: Send to Flask backend when input is given
 if question:
@@ -35,13 +35,15 @@ if question:
         data = response.json()
         st.markdown("**Answer:** " + data.get("response", "No answer returned."))
 
-        sources = data.get("sources",[])
-        if sources: 
-            st.markdown("**Sources:**")
-            for i, src in enumerate(sources,1):
-                st.markdown(f"{i}. [{src}]({src})")
+        sources = data.get("sources", [])
+        if sources:
+            # filter out any sources that start with "SUP-"
+            filtered = [s for s in sources if not s.startswith("SUP-")]
 
-        st.markdown("**Raw Response:**")
-        st.json(data)
+            if filtered:
+                top_source = filtered[0]
+                st.markdown("**Source:**")
+                st.markdown(f"[{top_source}]({top_source})")
+
     except Exception as e:
         st.error(f"Error: {type(e).__name__}: {e}")
